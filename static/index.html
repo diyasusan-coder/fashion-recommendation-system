@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>StyleSense — Fashion Recommendation System</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f0e17; color: #fffffe; }
+  .glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.08); }
+  .gradient-text { background: linear-gradient(90deg, #ff8ba7, #ffc6c7, #a0e7e5); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .nav-btn.active { background: linear-gradient(90deg, #ff8ba7, #a0e7e5); color: #0f0e17; font-weight: 600; }
+  .fade-in { animation: fadeIn 0.5s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .drop-zone.dragover { border-color: #ff8ba7; background: rgba(255,139,167,0.08); }
+  .spinner { border: 3px solid rgba(255,255,255,0.15); border-top: 3px solid #ff8ba7; border-radius: 50%; width: 36px; height: 36px; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-thumb { background: #ff8ba7; border-radius: 4px; }
+
+  /* Dark-themed dropdowns: replaces the browser's default white popup styling */
+  select.select-dark {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: #1a1825;
+    color: #fffffe;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%23ff8ba7' viewBox='0 0 16 16'><path d='M8 11L3 6h10z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+  }
+  select.select-dark option {
+    background-color: #1a1825;
+    color: #fffffe;
+  }
+
+  .insight-slot img { display: block; }
+  .insight-slot .fallback { display: none; }
+  .insight-slot img.broken { display: none; }
+  .insight-slot img.broken + .fallback { display: flex; }
+
+  .tag-pill { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- NAV -->
+<nav class="glass sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
+  <div class="text-2xl font-bold gradient-text">✨ StyleSense</div>
+  <div class="flex gap-2" id="nav-tabs">
+    <button data-tab="upload" class="nav-btn active px-4 py-2 rounded-full text-sm transition">Upload</button>
+    <button data-tab="results" class="nav-btn px-4 py-2 rounded-full text-sm transition">Results</button>
+    <button data-tab="lookbook" class="nav-btn px-4 py-2 rounded-full text-sm transition">Lookbook</button>
+    <button data-tab="insights" class="nav-btn px-4 py-2 rounded-full text-sm transition">Model Insights</button>
+    <button data-tab="about" class="nav-btn px-4 py-2 rounded-full text-sm transition">About</button>
+  </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-6 py-10">
+
+  <!-- ============ UPLOAD TAB ============ -->
+  <section id="tab-upload" class="tab-content fade-in">
+    <h1 class="text-3xl font-bold mb-2">What are you wearing today?</h1>
+    <p class="text-white/60 mb-8">Upload a photo, tell us the occasion and season, and get an AI-powered outfit recommendation with real pairing inspiration.</p>
+
+    <div class="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr_1fr] gap-6 items-start">
+
+      <!-- LEFT PANEL: how it works -->
+      <div class="glass rounded-2xl p-6 space-y-5 order-2 lg:order-1">
+        <h3 class="font-semibold text-lg gradient-text">How it works</h3>
+        <div class="flex gap-3">
+          <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm font-bold shrink-0">1</div>
+          <p class="text-sm text-white/70">CLIP detects the garment type straight from your photo — no training needed, works on any real clothing image.</p>
+        </div>
+        <div class="flex gap-3">
+          <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm font-bold shrink-0">2</div>
+          <p class="text-sm text-white/70">K-means clustering pulls out the dominant color directly from the pixels.</p>
+        </div>
+        <div class="flex gap-3">
+          <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm font-bold shrink-0">3</div>
+          <p class="text-sm text-white/70">A Groq-hosted LLM reasons about your occasion and season to suggest a full pairing — then Pexels fetches real reference photos.</p>
+        </div>
+      </div>
+
+      <!-- CENTER: the actual upload card -->
+      <div class="glass rounded-2xl p-8 order-1 lg:order-2">
+        <div id="drop-zone" class="drop-zone border-2 border-dashed border-white/20 rounded-xl p-10 text-center cursor-pointer transition">
+          <div id="drop-placeholder">
+            <div class="text-5xl mb-3">📷</div>
+            <p class="text-white/70">Drag & drop a clothing photo here, or click to browse</p>
+          </div>
+          <img id="preview-img" class="hidden max-h-64 mx-auto rounded-lg" />
+        </div>
+        <input type="file" id="file-input" accept="image/*" class="hidden" />
+
+        <div class="grid grid-cols-2 gap-4 mt-6">
+          <div>
+            <label class="block text-sm text-white/60 mb-1">Occasion</label>
+            <select id="occasion-select" class="select-dark w-full rounded-lg px-3 py-2 outline-none border border-white/10">
+              <option>casual day out</option>
+              <option>office meeting</option>
+              <option>evening dinner</option>
+              <option>wedding / festive occasion</option>
+              <option>weekend outing</option>
+              <option>date night</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm text-white/60 mb-1">Season</label>
+            <select id="season-select" class="select-dark w-full rounded-lg px-3 py-2 outline-none border border-white/10">
+              <option>summer</option>
+              <option>winter</option>
+              <option>monsoon</option>
+              <option>any season</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="submit-btn" class="mt-6 w-full bg-gradient-to-r from-pink-400 to-teal-300 text-[#0f0e17] font-semibold py-3 rounded-xl hover:opacity-90 transition disabled:opacity-40" disabled>
+          Get My Recommendation ✨
+        </button>
+        <p id="upload-error" class="text-red-400 text-sm mt-2 hidden"></p>
+      </div>
+
+      <!-- RIGHT PANEL: live preview + dynamic tip -->
+      <div class="glass rounded-2xl p-6 space-y-4 order-3">
+        <h3 class="font-semibold text-lg gradient-text">Live preview</h3>
+        <div id="side-preview" class="rounded-xl border border-dashed border-white/15 h-40 flex items-center justify-center text-white/30 text-sm overflow-hidden">
+          Nothing uploaded yet
+        </div>
+        <div>
+          <h4 class="text-sm font-semibold text-white/80 mb-1">Styling tip</h4>
+          <p id="dynamic-tip" class="text-sm text-white/60">Pick an occasion to see a quick styling tip here.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ RESULTS TAB ============ -->
+  <section id="tab-results" class="tab-content hidden">
+    <div id="results-empty" class="text-center text-white/50 py-20">
+      <div class="text-5xl mb-3">🕵️</div>
+      No results yet — upload a photo first.
+    </div>
+    <div id="results-loading" class="hidden flex flex-col items-center py-20 gap-4">
+      <div class="spinner"></div>
+      <p class="text-white/60">Analyzing your outfit...</p>
+    </div>
+    <div id="results-content" class="hidden fade-in"></div>
+  </section>
+
+  <!-- ============ LOOKBOOK TAB ============ -->
+  <section id="tab-lookbook" class="tab-content hidden">
+    <h1 class="text-3xl font-bold mb-2">Your Lookbook</h1>
+    <p class="text-white/60 mb-6">Every recommendation you've generated, saved automatically.</p>
+    <div id="lookbook-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+  </section>
+
+  <!-- ============ INSIGHTS TAB ============ -->
+  <section id="tab-insights" class="tab-content hidden">
+    <h1 class="text-3xl font-bold mb-2">Model Insights</h1>
+    <p class="text-white/60 mb-8">A look under the hood — the CNN was trained from scratch on Fashion-MNIST as the model-fundamentals piece of this project, while the live demo above runs on CLIP for real color photos.</p>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="glass rounded-2xl p-5 text-center">
+        <p class="text-2xl font-bold gradient-text">70,000</p>
+        <p class="text-xs text-white/50 mt-1">Fashion-MNIST images</p>
+      </div>
+      <div class="glass rounded-2xl p-5 text-center">
+        <p class="text-2xl font-bold gradient-text">10</p>
+        <p class="text-xs text-white/50 mt-1">Garment classes</p>
+      </div>
+      <div class="glass rounded-2xl p-5 text-center">
+        <p class="text-2xl font-bold gradient-text">28×28</p>
+        <p class="text-xs text-white/50 mt-1">Grayscale input size</p>
+      </div>
+      <div class="glass rounded-2xl p-5 text-center">
+        <p class="text-2xl font-bold gradient-text" id="insight-accuracy">91.4%</p>
+        <p class="text-xs text-white/50 mt-1">Test accuracy <span class="italic">(fill in from your notebook)</span></p>
+      </div>
+    </div>
+
+    <div class="glass rounded-2xl p-8 mb-8">
+      <h3 class="font-semibold text-lg mb-3">Architecture & training</h3>
+      <p class="text-white/70 text-sm leading-relaxed mb-3">
+        The classifier is a convolutional neural network trained from scratch — no
+        pretrained weights — using stacked convolution + max-pooling blocks to learn
+        edge and texture features, followed by dense layers with dropout for
+        regularization before the final 10-way softmax classification.
+      </p>
+      <p class="text-white/70 text-sm leading-relaxed">
+        This is the piece of the project that demonstrates the fundamentals: writing
+        the training loop, handling class imbalance and overfitting, and evaluating
+        with more than just accuracy — a confusion matrix and misclassification
+        analysis below show exactly where the model struggles (commonly: shirts vs.
+        coats vs. pullovers, which are visually similar even to humans at 28×28
+        resolution).
+      </p>
+    </div>
+
+    <h3 class="font-semibold text-lg mb-3">Evaluation plots</h3>
+    <p class="text-white/50 text-sm mb-4">
+      Export these four plots from your Colab notebook as PNGs and drop them into
+      <code class="tag-pill px-1.5 py-0.5 rounded text-xs">static/insights/</code>
+      with the exact filenames below — they'll appear automatically, no code changes needed.
+    </p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="glass rounded-2xl p-4 insight-slot">
+        <p class="text-sm font-semibold mb-2">Accuracy & loss curves</p>
+        <img src="/static/insights/accuracy_loss.png" alt="accuracy and loss curves"
+             class="w-full rounded-lg" onerror="this.classList.add('broken')">
+        <div class="fallback hidden flex-col items-center justify-center h-40 text-white/30 text-xs text-center px-4 border border-dashed border-white/15 rounded-lg">
+          Drop <code class="tag-pill px-1 rounded">accuracy_loss.png</code> in static/insights/
+        </div>
+      </div>
+      <div class="glass rounded-2xl p-4 insight-slot">
+        <p class="text-sm font-semibold mb-2">Confusion matrix</p>
+        <img src="/static/insights/confusion_matrix.png" alt="confusion matrix"
+             class="w-full rounded-lg" onerror="this.classList.add('broken')">
+        <div class="fallback hidden flex-col items-center justify-center h-40 text-white/30 text-xs text-center px-4 border border-dashed border-white/15 rounded-lg">
+          Drop <code class="tag-pill px-1 rounded">confusion_matrix.png</code> in static/insights/
+        </div>
+      </div>
+      <div class="glass rounded-2xl p-4 insight-slot">
+        <p class="text-sm font-semibold mb-2">CNN feature maps</p>
+        <img src="/static/insights/feature_maps.png" alt="feature maps"
+             class="w-full rounded-lg" onerror="this.classList.add('broken')">
+        <div class="fallback hidden flex-col items-center justify-center h-40 text-white/30 text-xs text-center px-4 border border-dashed border-white/15 rounded-lg">
+          Drop <code class="tag-pill px-1 rounded">feature_maps.png</code> in static/insights/
+        </div>
+      </div>
+      <div class="glass rounded-2xl p-4 insight-slot">
+        <p class="text-sm font-semibold mb-2">Misclassified examples</p>
+        <img src="/static/insights/misclassified.png" alt="misclassified examples"
+             class="w-full rounded-lg" onerror="this.classList.add('broken')">
+        <div class="fallback hidden flex-col items-center justify-center h-40 text-white/30 text-xs text-center px-4 border border-dashed border-white/15 rounded-lg">
+          Drop <code class="tag-pill px-1 rounded">misclassified.png</code> in static/insights/
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ABOUT TAB ============ -->
+  <section id="tab-about" class="tab-content hidden">
+    <h1 class="text-3xl font-bold mb-2">About This Project</h1>
+    <p class="text-white/60 mb-8">StyleSense pairs a from-scratch CNN with modern zero-shot vision and language models to turn a single photo into a full styling recommendation.</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div class="glass rounded-2xl p-6">
+        <h3 class="font-semibold mb-3 gradient-text">Pipeline</h3>
+        <ul class="space-y-3 text-sm text-white/75">
+          <li><strong class="text-white">Model fundamentals:</strong> CNN trained from scratch on Fashion-MNIST — see Model Insights for the full evaluation.</li>
+          <li><strong class="text-white">Live garment detection:</strong> CLIP zero-shot classification, works on any real color photo with no extra training.</li>
+          <li><strong class="text-white">Color detection:</strong> K-means clustering on the uploaded photo extracts the dominant garment color, with a brightness/saturation check so near-black and near-white items are named correctly.</li>
+          <li><strong class="text-white">Reasoning:</strong> Groq-hosted LLM generates occasion & season-aware pairing suggestions.</li>
+          <li><strong class="text-white">Visual inspiration:</strong> Pexels API pulls real reference photos matching the suggested pairing.</li>
+          <li><strong class="text-white">Persistence:</strong> SQLite-backed Lookbook stores every recommendation across sessions.</li>
+        </ul>
+      </div>
+      <div class="glass rounded-2xl p-6">
+        <h3 class="font-semibold mb-3 gradient-text">Why two models?</h3>
+        <p class="text-sm text-white/75 leading-relaxed mb-4">
+          Fashion-MNIST is 28×28 grayscale — great for learning and evaluating CNN
+          fundamentals, but it has no color information and can't generalize to real
+          photos. Rather than force it onto live uploads, this project keeps that
+          model as the evaluated, from-scratch piece, and uses CLIP for the live
+          demo where real color photos are the whole point.
+        </p>
+        <h3 class="font-semibold mb-3 gradient-text">Tech stack</h3>
+        <div class="flex flex-wrap gap-2">
+          <span class="tag-pill text-xs px-3 py-1 rounded-full">FastAPI</span>
+          <span class="tag-pill text-xs px-3 py-1 rounded-full">CLIP</span>
+          <span class="tag-pill text-xs px-3 py-1 rounded-full">Groq LLM</span>
+          <span class="tag-pill text-xs px-3 py-1 rounded-full">Pexels API</span>
+          <span class="tag-pill text-xs px-3 py-1 rounded-full">SQLite</span>
+          <span class="tag-pill text-xs px-3 py-1 rounded-full">scikit-learn</span>
+          <span class="tag-pill text-xs px-3 py-1 rounded-full">Tailwind CSS</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-2xl p-6 text-sm text-white/60">
+      Built by Diya Susan — BTech AI/ML, Christ University, Bangalore.
+    </div>
+  </section>
+
+</main>
+
+<script>
+const state = { uploadedFile: null };
+
+const OCCASION_TIPS = {
+  "casual day out": "Keep it relaxed — one comfortable statement piece is enough, skip over-accessorizing.",
+  "office meeting": "Structured pieces read as put-together; keep colors muted and fit clean.",
+  "evening dinner": "This is where you can go slightly bolder with color or texture — soft lighting is forgiving.",
+  "wedding / festive occasion": "Lean into richer colors and a bit of shine — festive settings reward it.",
+  "weekend outing": "Comfort-first, but one well-chosen accessory keeps it from looking too plain.",
+  "date night": "Fit matters more than trend here — well-fitted beats flashy.",
+};
+
+document.getElementById('occasion-select').addEventListener('change', updateTip);
+function updateTip() {
+  const occasion = document.getElementById('occasion-select').value;
+  document.getElementById('dynamic-tip').textContent = OCCASION_TIPS[occasion] || "Pick an occasion to see a quick styling tip here.";
+}
+updateTip();
+
+// --- Tab navigation ---
+document.querySelectorAll('#nav-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+  document.getElementById('tab-' + tab).classList.remove('hidden');
+  document.querySelectorAll('#nav-tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelector(`#nav-tabs button[data-tab="${tab}"]`).classList.add('active');
+  if (tab === 'lookbook') loadLookbook();
+}
+
+// --- Upload / drag-drop ---
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const previewImg = document.getElementById('preview-img');
+const dropPlaceholder = document.getElementById('drop-placeholder');
+const submitBtn = document.getElementById('submit-btn');
+const sidePreview = document.getElementById('side-preview');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) handleFile(fileInput.files[0]);
+});
+
+function handleFile(file) {
+  state.uploadedFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    previewImg.src = e.target.result;
+    previewImg.classList.remove('hidden');
+    dropPlaceholder.classList.add('hidden');
+    sidePreview.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover" />`;
+  };
+  reader.readAsDataURL(file);
+  submitBtn.disabled = false;
+}
+
+submitBtn.addEventListener('click', submitPrediction);
+
+async function submitPrediction() {
+  const errorEl = document.getElementById('upload-error');
+  errorEl.classList.add('hidden');
+
+  if (!state.uploadedFile) return;
+
+  switchTab('results');
+  document.getElementById('results-empty').classList.add('hidden');
+  document.getElementById('results-content').classList.add('hidden');
+  document.getElementById('results-loading').classList.remove('hidden');
+
+  const formData = new FormData();
+  formData.append('image', state.uploadedFile);
+  formData.append('occasion', document.getElementById('occasion-select').value);
+  formData.append('season', document.getElementById('season-select').value);
+
+  try {
+    const resp = await fetch('/api/predict', { method: 'POST', body: formData });
+    if (!resp.ok) throw new Error('Prediction failed');
+    const data = await resp.json();
+    renderResults(data);
+  } catch (err) {
+    document.getElementById('results-loading').classList.add('hidden');
+    document.getElementById('results-empty').classList.remove('hidden');
+    errorEl.textContent = 'Something went wrong: ' + err.message;
+    errorEl.classList.remove('hidden');
+    switchTab('upload');
+  }
+}
+
+function renderResults(data) {
+  document.getElementById('results-loading').classList.add('hidden');
+  const content = document.getElementById('results-content');
+  content.classList.remove('hidden');
+
+  const pairingImagesHtml = data.pairing_images.length
+    ? data.pairing_images.map(img => `
+        <a href="${img.link}" target="_blank" class="block rounded-lg overflow-hidden hover:opacity-80 transition">
+          <img src="${img.url}" class="w-full h-32 object-cover" />
+        </a>`).join('')
+    : `<p class="text-white/40 col-span-full text-sm">No pairing images available — check that PEXELS_API_KEY is set in your .env file and restart the server.</p>`;
+
+  const topPredsHtml = (data.top_predictions || []).map(p =>
+    `<span class="text-xs bg-white/10 px-2 py-1 rounded-full mr-2">${p.label} (${(p.confidence*100).toFixed(0)}%)</span>`
+  ).join('');
+
+  content.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="glass rounded-2xl p-4">
+        <img src="${data.image_path}" class="w-full rounded-xl object-cover max-h-96" />
+      </div>
+      <div class="glass rounded-2xl p-6 space-y-4">
+        <div>
+          <span class="text-xs uppercase tracking-wide text-white/50">Detected</span>
+          <h2 class="text-2xl font-bold capitalize">${data.color.name} ${data.garment}</h2>
+          <div class="mt-1">${topPredsHtml}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full border border-white/20" style="background:${data.color.hex}"></span>
+          <span class="text-sm text-white/60">${data.color.hex}</span>
+        </div>
+        <div>
+          <span class="text-xs uppercase tracking-wide text-white/50">Occasion & Season</span>
+          <p class="text-white/80 capitalize">${data.occasion} · ${data.season}</p>
+        </div>
+        <div>
+          <span class="text-xs uppercase tracking-wide text-white/50">Outfit Suggestion ${data.suggestion_source === 'fallback' ? '(offline mode — check your GROQ_API_KEY)' : ''}</span>
+          <p class="text-white/90 mt-1">${data.suggestion}</p>
+        </div>
+      </div>
+    </div>
+    <div class="mt-6">
+      <h3 class="text-lg font-semibold mb-3">Pairing Inspiration</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">${pairingImagesHtml}</div>
+    </div>
+  `;
+}
+
+// --- Lookbook ---
+async function loadLookbook() {
+  const grid = document.getElementById('lookbook-grid');
+  grid.innerHTML = `<div class="col-span-full flex justify-center py-10"><div class="spinner"></div></div>`;
+  try {
+    const resp = await fetch('/api/history');
+    const items = await resp.json();
+    if (!items.length) {
+      grid.innerHTML = `<p class="text-white/50 col-span-full">No saved looks yet — generate a recommendation first!</p>`;
+      return;
+    }
+    grid.innerHTML = items.map(item => `
+      <div class="glass rounded-2xl p-4 fade-in">
+        <img src="${item.image_path}" class="w-full h-40 object-cover rounded-lg mb-3" />
+        <h3 class="font-semibold capitalize">${item.color_name} ${item.garment}</h3>
+        <p class="text-xs text-white/50 capitalize mb-2">${item.occasion} · ${item.season}</p>
+        <p class="text-sm text-white/70 line-clamp-3">${item.suggestion}</p>
+        <button onclick="deleteEntry(${item.id})" class="mt-3 text-xs text-red-300 hover:text-red-400">Delete</button>
+      </div>
+    `).join('');
+  } catch (err) {
+    grid.innerHTML = `<p class="text-red-400 col-span-full">Failed to load lookbook: ${err.message}</p>`;
+  }
+}
+
+async function deleteEntry(id) {
+  await fetch(`/api/history/${id}`, { method: 'DELETE' });
+  loadLookbook();
+}
+</script>
+</body>
+</html>
